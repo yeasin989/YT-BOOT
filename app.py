@@ -1,118 +1,130 @@
-from flask import Flask, render_template_string, request, redirect, url_for
-from threading import Thread
+from flask import Flask, render_template_string, request, jsonify
+from threading import Thread, Lock
 import time
-
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-except ImportError:
-    webdriver = None
 
 app = Flask(__name__)
 
-# Global state for bot progress
-bot_state = {
-    "running": False,
-    "urls": [],
-    "target_minutes": 0,
-    "watched_minutes": 0,
-}
+progress_data = []
+progress_lock = Lock()
+RUNNING = False
 
 HTML = """
+<!DOCTYPE html>
 <html>
-<head><title>YouTube Watch Bot Admin</title></head>
-<body style="font-family:sans-serif;">
-    <h1>YouTube Watch Bot Admin Panel</h1>
-    <form method="post" action="/start">
-        <label>Video URLs (one per line, up to 10):<br>
-            <textarea name="urls" rows="10" cols="60">{{ urls }}</textarea>
-        </label><br><br>
-        <label>Total Watch Time (minutes): <input type="number" name="minutes" value="{{ minutes }}" min="1" max="10080"></label><br><br>
-        {% if not running %}
-            <button type="submit">Start Watching</button>
-        {% else %}
-            <p style="color:green;"><b>Bot is running!</b></p>
-        {% endif %}
+<head>
+    <title>YouTube Watch Bot Admin</title>
+    <style>
+        body { font-family: sans-serif; max-width:700px; margin:30px auto; background:#fafafa; }
+        table { width:100%; border-collapse: collapse; margin-top:20px;}
+        th, td { border:1px solid #bbb; padding:8px; text-align:left;}
+        th { background:#ddd;}
+        tr:nth-child(even) {background: #f2f2f2;}
+        .btn { padding:10px 20px; font-size:1rem; background:#4CAF50; color:#fff; border:none; border-radius:5px; cursor:pointer;}
+        .btn[disabled] { background:#ccc;}
+    </style>
+</head>
+<body>
+    <h2>YouTube Watch Bot Admin Panel</h2>
+    <form id="mainForm" method="POST" action="/">
+        <label>Paste 1 video URL per line (max 10):</label><br>
+        <textarea name="urls" rows="10" style="width:100%">{{urls}}</textarea><br><br>
+        <label>Minutes to watch (per video, then loop):</label><br>
+        <input type="number" name="minutes" value="{{minutes}}" min="1" max="1440"><br><br>
+        <button class="btn" type="submit" name="action" value="start" {{'disabled' if running else ''}}>Start</button>
+        <button class="btn" type="submit" name="action" value="stop" style="background:#e53935;" {{'' if running else 'disabled'}}>Stop</button>
     </form>
     <br>
-    <form method="post" action="/stop">
-        {% if running %}
-            <button type="submit">Stop Bot</button>
-        {% endif %}
-    </form>
-    <hr>
-    <h3>Progress:</h3>
-    <ul>
-        <li>Running: {{ running }}</li>
-        <li>Videos: {{ urls|length }}</li>
-        <li>Target Minutes: {{ minutes }}</li>
-        <li>Watched Minutes: {{ watched }}</li>
-        <li>Watched Hours: {{ "%.2f"|format(watched/60) }}</li>
-    </ul>
+    <h3>Progress (Live)</h3>
+    <table>
+        <tr><th>#</th><th>Video URL</th><th>Watched Minutes</th><th>Status</th></tr>
+        <tbody id="progressRows">
+        {% for v in progress %}
+        <tr>
+            <td>{{loop.index}}</td>
+            <td><a href="{{v['url']}}" target="_blank">{{v['url']}}</a></td>
+            <td>{{v['watched']}} / {{v['target']}}</td>
+            <td>{{v['status']}}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <script>
+        function fetchProgress() {
+            fetch("/progress")
+                .then(response => response.json())
+                .then(data => {
+                    let rows = "";
+                    data.forEach(function(v, i) {
+                        rows += `<tr>
+                            <td>${i+1}</td>
+                            <td><a href="${v.url}" target="_blank">${v.url}</a></td>
+                            <td>${v.watched} / ${v.target}</td>
+                            <td>${v.status}</td>
+                        </tr>`;
+                    });
+                    document.getElementById("progressRows").innerHTML = rows;
+                });
+        }
+        setInterval(fetchProgress, 2000);  // update every 2 seconds
+        fetchProgress();
+    </script>
 </body>
 </html>
 """
 
-@app.route('/', methods=["GET"])
-def index():
-    return render_template_string(HTML, 
-        running=bot_state["running"],
-        urls="\n".join(bot_state["urls"]),
-        minutes=bot_state["target_minutes"],
-        watched=bot_state["watched_minutes"]
-    )
+def watch_video(idx):
+    while RUNNING:
+        with progress_lock:
+            entry = progress_data[idx]
+        # Simulate "watching" a minute every few seconds for demo (replace with actual watch logic)
+        time.sleep(3)  # Pretend 1 minute is 3 seconds for testing
+        with progress_lock:
+            if not RUNNING: break
+            entry['watched'] += 1
+            entry['status'] = "Watching"
+            if entry['watched'] >= entry['target']:
+                entry['status'] = "Finished, restarting..."
+                entry['watched'] = 0  # reset to loop
+    with progress_lock:
+        progress_data[idx]['status'] = "Stopped"
 
-@app.route('/start', methods=["POST"])
-def start():
-    if not bot_state["running"]:
-        urls = [u.strip() for u in request.form["urls"].strip().splitlines() if u.strip()]
-        urls = urls[:10]
-        minutes = max(1, int(request.form["minutes"]))
-        bot_state["urls"] = urls
-        bot_state["target_minutes"] = minutes
-        bot_state["watched_minutes"] = 0
-        bot_state["running"] = True
-        t = Thread(target=watch_bot, daemon=True)
+def start_all_threads():
+    threads = []
+    for idx in range(len(progress_data)):
+        t = Thread(target=watch_video, args=(idx,), daemon=True)
         t.start()
-    return redirect(url_for('index'))
+        threads.append(t)
+    return threads
 
-@app.route('/stop', methods=["POST"])
-def stop():
-    bot_state["running"] = False
-    return redirect(url_for('index'))
+@app.route("/", methods=["GET", "POST"])
+def index():
+    global RUNNING, progress_data
+    urls = ""
+    minutes = 1
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "start":
+            urls = request.form.get("urls", "")
+            minutes = int(request.form.get("minutes", "1"))
+            url_list = [u.strip() for u in urls.splitlines() if u.strip()][:10]
+            with progress_lock:
+                progress_data = [{"url": u, "watched": 0, "target": minutes, "status": "Waiting"} for u in url_list]
+            RUNNING = True
+            Thread(target=start_all_threads, daemon=True).start()
+        elif action == "stop":
+            RUNNING = False
+            with progress_lock:
+                for entry in progress_data:
+                    entry['status'] = "Stopped"
+    with progress_lock:
+        progress = list(progress_data)
+        running = RUNNING
+    return render_template_string(HTML, progress=progress, urls=urls, minutes=minutes, running=running)
 
-def watch_bot():
-    if webdriver is None:
-        bot_state["running"] = False
-        return
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(options=chrome_options)
-    try:
-        per_video = max(1, bot_state["target_minutes"] // max(1, len(bot_state["urls"])))
-        for url in bot_state["urls"]:
-            if not bot_state["running"]:
-                break
-            driver.get(url)
-            time.sleep(5)
-            try:
-                play_button = driver.find_element("css selector", "button.ytp-large-play-button")
-                play_button.click()
-            except Exception:
-                pass
-            for i in range(per_video):
-                if not bot_state["running"] or bot_state["watched_minutes"] >= bot_state["target_minutes"]:
-                    break
-                bot_state["watched_minutes"] += 1
-                time.sleep(60)
-        bot_state["running"] = False
-    except Exception as e:
-        print("Bot crashed:", e)
-        bot_state["running"] = False
-    finally:
-        driver.quit()
+@app.route("/progress")
+def progress():
+    with progress_lock:
+        return jsonify(progress_data)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
