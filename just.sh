@@ -95,40 +95,147 @@ sudo tee $TARGET_DIR/index.html > /dev/null <<'EOF'
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>YouTube Multi Video Player</title>
 <style>
-  body { background-color: #121212; color: #fff; font-family: Arial, sans-serif; margin: 20px; }
-  label { display: block; margin-top: 15px; }
-  textarea, input[type=number] { width: 100%; padding: 10px; border-radius: 6px; border: none; font-size: 16px; box-sizing: border-box; }
-  button { margin-top: 15px; padding: 10px 20px; background-color: #7e57c2; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
-  button:hover { background-color: #5e35b1; }
-  #videoGrid { margin-top: 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
-  .videoItem { background-color: #1e1e1e; border-radius: 8px; padding: 10px; }
-  .videoTitle { margin: 8px 0 4px 0; font-weight: bold; }
-  .videoChannel { font-size: 14px; color: #bbb; margin-bottom: 8px; }
-  iframe { width: 100%; height: 170px; border-radius: 8px; border: none; }
-  .viewCount { font-size: 13px; color: #888; }
+  body {
+    background-color: #181818;
+    color: #fff;
+    font-family: "Segoe UI", Arial, sans-serif;
+    margin: 0;
+  }
+  .topbar {
+    background: #242424cc;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 12px 20px 8px 20px;
+    box-shadow: 0 2px 10px #0002;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .topbar h1 {
+    font-size: 1.2rem;
+    margin: 0 0 7px 0;
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+  .controls {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .controls label {
+    margin: 0;
+    font-size: 0.99rem;
+    font-weight: 400;
+    color: #bbb;
+  }
+  .controls textarea, .controls input[type=number] {
+    padding: 7px;
+    border-radius: 6px;
+    border: none;
+    font-size: 14px;
+    width: 180px;
+    background: #222;
+    color: #fff;
+    margin-right: 6px;
+    margin-bottom: 2px;
+  }
+  .controls textarea { width: 260px; height: 40px; resize: vertical;}
+  .controls button {
+    padding: 7px 16px;
+    background: #e53935;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: bold;
+    transition: background .15s;
+    margin-left: 4px;
+  }
+  .controls button:hover { background: #b71c1c; }
+  #videoGrid {
+    margin: 0 auto;
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr); /* 8 columns! */
+    gap: 13px;
+    max-width: 1800px;
+    padding: 10px 15px;
+  }
+  @media (max-width: 1700px) { #videoGrid { grid-template-columns: repeat(6, 1fr); } }
+  @media (max-width: 1350px) { #videoGrid { grid-template-columns: repeat(4, 1fr); } }
+  @media (max-width: 950px) { #videoGrid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 680px) { #videoGrid { grid-template-columns: 1fr; } }
+  .videoItem {
+    background-color: #212121;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px #0003;
+    padding: 0;
+    transition: box-shadow .15s, transform .13s;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    overflow: hidden;
+    position: relative;
+  }
+  .videoItem:hover { box-shadow: 0 6px 20px #0005; transform: translateY(-3px) scale(1.02);}
+  .videoPlayer {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #191919;
+    border: none;
+    display: block;
+  }
+  .videoInfo {
+    padding: 7px 9px 6px 9px;
+    background: #262626;
+    font-size: 13px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    margin-top: -3px;
+  }
+  .videoTitle {
+    font-weight: bold;
+    margin-bottom: 2px;
+    font-size: 13px;
+    color: #fafafa;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .videoChannel { font-size: 12px; color: #c7c7c7; margin-bottom: 2px;}
+  .viewCount { font-size: 11px; color: #979797; }
 </style>
 </head>
 <body>
+  <div class="topbar">
+    <h1>YT Multi Video Player</h1>
+    <form class="controls" id="videoForm" onsubmit="return false;">
+      <label for="urlsInput">URLs:</label>
+      <textarea id="urlsInput" placeholder="Paste YouTube URLs"></textarea>
+      <label for="countInput">Count:</label>
+      <input type="number" id="countInput" min="1" max="80" value="16" />
+      <button id="loadBtn">Load</button>
+    </form>
+  </div>
 
-<h1>YouTube Multi Video Player</h1>
-
-<label for="urlsInput">Enter YouTube URLs (comma or newline separated):</label>
-<textarea id="urlsInput" rows="5" placeholder="https://youtu.be/VIDEOID1, https://www.youtube.com/watch?v=VIDEOID2"></textarea>
-
-<label for="countInput">Number of videos to play:</label>
-<input type="number" id="countInput" min="1" value="10" />
-
-<button id="loadBtn">Load Videos</button>
-
-<div id="videoGrid"></div>
+  <div id="videoGrid"></div>
 
 <script>
 const loadBtn = document.getElementById('loadBtn');
 const urlsInput = document.getElementById('urlsInput');
 const countInput = document.getElementById('countInput');
 const videoGrid = document.getElementById('videoGrid');
+const videoForm = document.getElementById('videoForm');
 
-loadBtn.addEventListener('click', () => {
+videoForm.addEventListener('submit', loadVideos);
+loadBtn.addEventListener('click', loadVideos);
+
+function loadVideos(e) {
+  if (e) e.preventDefault();
   const urls = urlsInput.value.trim();
   const count = parseInt(countInput.value);
 
@@ -160,15 +267,24 @@ loadBtn.addEventListener('click', () => {
     }
 
     videoGrid.innerHTML = '';
-    data.videos.forEach(video => {
+    data.videos.forEach((video, idx) => {
       const videoItem = document.createElement('div');
       videoItem.className = 'videoItem';
 
+      // For Chrome autoplay, set mute=1 if autoplay=1 is present
+      // Only first video will auto-play with sound; others will be muted and autoplay
+      const autoplay = idx === 0 ? 1 : 1;
+      const mute = idx === 0 ? 0 : 1;
+
       videoItem.innerHTML = `
-        <iframe src="https://www.youtube.com/embed/${video.videoId}?rel=0&showinfo=1&autoplay=0&modestbranding=1" allowfullscreen allow="autoplay"></iframe>
-        <div class="videoTitle">${video.title}</div>
-        <div class="videoChannel">${video.channelTitle}</div>
-        <div class="viewCount">${Number(video.viewCount).toLocaleString()} views</div>
+        <iframe class="videoPlayer"
+          src="https://www.youtube.com/embed/${video.videoId}?autoplay=${autoplay}&mute=${mute}&rel=0&showinfo=1&modestbranding=1"
+          allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div class="videoInfo">
+          <div class="videoTitle" title="${video.title}">${video.title}</div>
+          <div class="videoChannel">${video.channelTitle}</div>
+          <div class="viewCount">${Number(video.viewCount).toLocaleString()} views</div>
+        </div>
       `;
 
       videoGrid.appendChild(videoItem);
@@ -177,9 +293,8 @@ loadBtn.addEventListener('click', () => {
   .catch(() => {
     videoGrid.innerHTML = '<p style="color:red;">Failed to load videos.</p>';
   });
-});
+}
 </script>
-
 </body>
 </html>
 EOF
